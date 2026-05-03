@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "SalesPlay LinkedIn Extension",
+  "version": "1.0.0",
+  "description": "Reads LinkedIn profile URL and connects with SalesPlay.",
+  "permissions": ["storage", "tabs", "activeTab", "scripting", "sidePanel"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://salesplay.marketsandmarkets.com/*"
+  ],
+  "action": {
+    "default_title": "SalesPlay Extension"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.linkedin.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": ["https://www.linkedin.com/*"]
+    }
+  ]
+}
