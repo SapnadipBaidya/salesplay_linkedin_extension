@@ -131,14 +131,13 @@ async function startPhoneStream(source, apolloId) {
     return;
   }
 
-  const url = `https://api-salesplay.marketsandmarkets.com/v2/contact/enriched_contact_sse/${apolloId}`;
+  const url = `http://127.0.0.1:8000/contact/enriched_contact_sse/${apolloId}`;
   const evt = new EventSource(url);
   phoneSources[apolloId] = evt;
 
   evt.addEventListener("phoneUpdate", (e) => {
     const phone = e.data;
     phoneBuffers[apolloId] = phone;
-debugger
     broadcastPhone({ type: "PHONE_UPDATE", apolloId, phone });
     
     evt.close();
@@ -157,7 +156,7 @@ debugger
         broadcastPhone({
           type: "PHONE_UPDATE_ERROR",
           apolloId,
-          message: json.error || "Unknown error",
+          message: "Not Found",
         });
       } else {
         throw new Error("Invalid Response");
@@ -166,7 +165,7 @@ debugger
       broadcast({
         type: "PHONE_UPDATE_ERROR",
         apolloId,
-        message: "Error Fetching",
+        message: "Not Found",
       });
     } finally {
       evt.close();
