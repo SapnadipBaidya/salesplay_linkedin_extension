@@ -79,6 +79,37 @@
       resetContactData();
       clearUrl();
     }
+
+  const key = `${$user?.id}_${profileUrl}`;
+
+  if (!isExtension) {
+    const rawData = localStorage.getItem(key);
+
+    if (rawData) {
+      try {
+        const data = JSON.parse(rawData);
+
+        const tenMinutes = 10 * 60 * 1000;
+        const isExpired = Date.now() - data?.ts > tenMinutes;
+
+        if (isExpired) {
+          localStorage.removeItem(key);
+          console.log("Expired localStorage key deleted:", key);
+          accessingPhone=false
+        }if(contactDetails?.phone?.length>8 && contactDetails?.phone!="not found" && contactDetails?.phone!=null){
+          localStorage.removeItem(key);
+        } else {
+          console.log("Valid cached data:", data);
+          accessingPhone=true
+        }
+      } catch (error) {
+        console.error("Invalid localStorage data, deleting key:", error);
+        localStorage.removeItem(key);
+      }
+    }else{
+       accessingPhone=false
+    }
+  }
   });
 
   async function sendPhoneStreamMessage(payload) {
@@ -148,10 +179,15 @@ onMount(() => {
     }
 
     if (message?.type === "PHONE_UPDATE" && message.apolloId === contactDetails.id) {
-      debugger
       contactDetails.phone = message.phone;
       accessingPhone = false;
       newArrival = true;
+      const key = `${$user?.id}_${profileUrl}`;
+      if (!isExtension) {
+        localStorage.removeItem(key)
+      }else{
+        
+      }
     }
 
     console.log("PHONE_EVENT",message,contactDetails)
@@ -160,13 +196,29 @@ onMount(() => {
       phoneError = message.message;
       contactDetails.phone = phoneError
       accessingPhone = false;
+       newArrival = true;
+       const key = `${$user?.id}_${profileUrl}`;
+      if (!isExtension) {
+        localStorage.removeItem(key)
+      }else{
+        
+      }
     }
   }
   async function handleAccessPhone() {
-    debugger
     if (!isValidLinkedInProfileUrl(profileUrl)) {
       phoneError = "Please enter a valid LinkedIn profile URL.";
       return;
+    }
+    newArrival = false;
+
+    if(!isExtension){
+      const key = `${$user?.id}_${profileUrl}`;
+      localStorage.setItem(key,JSON.stringify({
+          ts: Date.now()
+        }))
+    }else{
+
     }
 
     phoneError = null;
@@ -179,15 +231,14 @@ onMount(() => {
         formatLinkedInUrl(profileUrl),
         true
       );
-debugger
+
       contactDetails = data
-debugger
+
       const payload = {
         type: "START_PHONE_STREAM",
          independent: true,
         apolloId: contactDetails.id
       };
-debugger
       // --- ENVIRONMENT DISPATCH ---
      await sendPhoneStreamMessage(payload);
 
@@ -229,6 +280,7 @@ debugger
       emailError = "Please enter a valid LinkedIn profile URL.";
       return;
     }
+    newArrival = false;
 
     emailError = null;
 
@@ -480,7 +532,7 @@ debugger
   {/if}
 </div>
 
-{#if contactDetails?.id !=null &&( !accessingPhone)}
+{#if contactDetails?.id !=null}
 <SaveToSP contactData={contactDetails} newArrival={newArrival} />
 {/if}
 
