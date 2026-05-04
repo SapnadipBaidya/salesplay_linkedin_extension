@@ -1,15 +1,37 @@
 <!-- LinkedExtractor.svelte -->
 <script>
-// @ts-nocheck
+  // @ts-nocheck
 
-  import { onMount } from "svelte";
+  import { onMount, getContext } from "svelte";
+
   import { isExtension } from "../authUtils";
   import { formatLinkedInUrl } from "../uiUtils";
   import { enrichContactV3, getApolloContactDetails } from "../apiUtils";
-  import { getContext } from "svelte";
+
   import SaveToSP from "./SaveToSP.svelte";
 
+  /* -------------------------------------------------------------------------- */
+  /* Props                                                                       */
+  /* -------------------------------------------------------------------------- */
+
   let { accessToken, onLogout } = $props();
+
+  /* -------------------------------------------------------------------------- */
+  /* Context                                                                     */
+  /* -------------------------------------------------------------------------- */
+
+  const user = getContext("userContext");
+
+  /* -------------------------------------------------------------------------- */
+  /* Constants                                                                   */
+  /* -------------------------------------------------------------------------- */
+
+  const EMAIL_CREDITS = 2;
+  const PHONE_CREDITS = 10;
+
+  /* -------------------------------------------------------------------------- */
+  /* State                                                                       */
+  /* -------------------------------------------------------------------------- */
 
   let gettingProfile = $state(false);
   let accessingEmail = $state(false);
@@ -17,27 +39,32 @@
 
   let profileUrl = $state("");
   let loading = $state(true);
+
   let profileError = $state(null);
   let emailError = $state(null);
   let phoneError = $state(null);
 
-  let contactDetails = $state({ email: null, phone: null, id: null });
+  let contactDetails = $state({
+    email: null,
+    phone: null,
+    id: null
+  });
+
   let newArrival = $state(false);
 
   let lastFetchedUrl = $state("");
   let isValidLinkedInUrl = $state(false);
 
-  const user = getContext("userContext");
-
-  const EMAIL_CREDITS = 2;
-  const PHONE_CREDITS = 10;
+  /* -------------------------------------------------------------------------- */
+  /* URL Helpers                                                                 */
+  /* -------------------------------------------------------------------------- */
 
   function clearUrl() {
-      profileUrl = "";
-      lastFetchedUrl = "";
-      isValidLinkedInUrl = false;
-      resetContactData();
-    }
+    profileUrl = "";
+    lastFetchedUrl = "";
+    isValidLinkedInUrl = false;
+    resetContactData();
+  }
 
   function isValidLinkedInProfileUrl(url) {
     if (!url || typeof url !== "string") return false;
@@ -57,15 +84,39 @@
     }
   }
 
+  /* -------------------------------------------------------------------------- */
+  /* Reset Helpers                                                               */
+  /* -------------------------------------------------------------------------- */
+
   function resetContactData() {
-    contactDetails = { email: null, phone: null, id: null };
+    contactDetails = {
+      email: null,
+      phone: null,
+      id: null
+    };
+
     newArrival = false;
+
     profileError = null;
     emailError = null;
     phoneError = null;
   }
 
-  
+  function dismissProfileError() {
+    profileError = null;
+  }
+
+  function dismissEmailError() {
+    emailError = null;
+  }
+
+  function dismissPhoneError() {
+    phoneError = null;
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Reactive Effect                                                             */
+  /* -------------------------------------------------------------------------- */
 
   $effect(() => {
     isValidLinkedInUrl = isValidLinkedInProfileUrl(profileUrl);
@@ -80,75 +131,133 @@
       clearUrl();
     }
 
-  const key = `${$user?.id}_${profileUrl}`;
+    const key = `${$user?.id}_${profileUrl}`;
 
-  if (!isExtension) {
-    const rawData = localStorage.getItem(key);
+    if (!isExtension) {
+      const rawData = localStorage.getItem(key);
 
-    if (rawData) {
-      try {
-        const data = JSON.parse(rawData);
+      if (rawData) {
+        try {
+          const data = JSON.parse(rawData);
 
-        const tenMinutes = 10 * 60 * 1000;
-        const isExpired = Date.now() - data?.ts > tenMinutes;
+          const tenMinutes = 10 * 60 * 1000;
+          const isExpired = Date.now() - data?.ts > tenMinutes;
 
-        if (isExpired) {
+          if (isExpired) {
+            localStorage.removeItem(key);
+            console.log("Expired localStorage key deleted:", key);
+            accessingPhone = false;
+          }
+
+          if (
+            contactDetails?.phone?.length > 8 &&
+            contactDetails?.phone != "not found" &&
+            contactDetails?.phone != null
+          ) {
+            localStorage.removeItem(key);
+          } else {
+            console.log("Valid cached data:", data);
+            accessingPhone = true;
+          }
+        } catch (error) {
+          console.error("Invalid localStorage data, deleting key:", error);
           localStorage.removeItem(key);
-          console.log("Expired localStorage key deleted:", key);
-          accessingPhone=false
-        }if(contactDetails?.phone?.length>8 && contactDetails?.phone!="not found" && contactDetails?.phone!=null){
-          localStorage.removeItem(key);
-        } else {
-          console.log("Valid cached data:", data);
-          accessingPhone=true
         }
-      } catch (error) {
-        console.error("Invalid localStorage data, deleting key:", error);
-        localStorage.removeItem(key);
+      } else {
+        accessingPhone = false;
       }
-    }else{
-       accessingPhone=false
     }
-  }
   });
 
+  /* -------------------------------------------------------------------------- */
+  /* Messaging                                                                   */
+  /* -------------------------------------------------------------------------- */
+
   async function sendPhoneStreamMessage(payload) {
-  if (isExtension) {
-    chrome.runtime.sendMessage(payload);
-    return;
+    if (isExtension) {
+      chrome.runtime.sendMessage(payload);
+      return;
+    }
+
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+
+      const worker =
+        navigator.serviceWorker.controller ||
+        registration.active ||
+        registration.waiting ||
+        registration.installing;
+
+      if (worker) {
+        worker.postMessage(payload);
+        return;
+      }
+    }
+
+    console.warn("No messaging channel available.");
   }
 
-  if ("serviceWorker" in navigator) {
-    const registration = await navigator.serviceWorker.ready;
+  function handleIncomingMessages(event) {
+    const message = event.data || event;
 
-    const worker =
-      navigator.serviceWorker.controller ||
-      registration.active ||
-      registration.waiting ||
-      registration.installing;
+    if (message?.type === "LINKEDIN_PROFILE_URL") {
+      profileUrl = message.profileUrl || "";
+    }
 
-    if (worker) {
-      worker.postMessage(payload);
-      return;
+    if (
+      message?.type === "PHONE_UPDATE" &&
+      message.apolloId === contactDetails.id
+    ) {
+      contactDetails.phone = message.phone;
+      accessingPhone = false;
+      newArrival = true;
+
+      const key = `${$user?.id}_${profileUrl}`;
+
+      if (!isExtension) {
+        localStorage.removeItem(key);
+      } else {
+      }
+    }
+
+    console.log("PHONE_EVENT", message, contactDetails);
+
+    if (
+      message?.type === "PHONE_UPDATE_ERROR" &&
+      message.apolloId === contactDetails.id
+    ) {
+      phoneError = message.message;
+      contactDetails.phone = phoneError;
+      accessingPhone = false;
+      newArrival = true;
+
+      const key = `${$user?.id}_${profileUrl}`;
+
+      if (!isExtension) {
+        localStorage.removeItem(key);
+      } else {
+      }
     }
   }
 
-  console.warn("No messaging channel available.");
-}
+  /* -------------------------------------------------------------------------- */
+  /* Lifecycle                                                                   */
+  /* -------------------------------------------------------------------------- */
 
-onMount(() => {
+  onMount(() => {
     if (!isExtension && "serviceWorker" in navigator) {
-      // 1. Register the worker
       navigator.serviceWorker
         .register("/background.js")
         .then((registration) => {
           console.log("SW Registered");
-          // 2. IMPORTANT: Wait for the worker to be ready/active
           return navigator.serviceWorker.ready;
         })
         .then(() => {
-          // Now the SW is ready to receive messages
-          navigator.serviceWorker.addEventListener("message", handleIncomingMessages);
+          navigator.serviceWorker.addEventListener(
+            "message",
+            handleIncomingMessages
+          );
+
           loading = false;
         })
         .catch((error) => {
@@ -157,97 +266,25 @@ onMount(() => {
         });
     } else if (isExtension) {
       chrome.runtime.onMessage.addListener(handleIncomingMessages);
-      debugger
+
+      debugger;
+
       chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, (response) => {
-        debugger
+        debugger;
+
         profileUrl = response?.profileUrl || "";
         loading = false;
-        clearUrl()
+        clearUrl();
       });
     } else {
       loading = false;
     }
   });
 
-  // Reusable handler for both Extension and SW messages
-  function handleIncomingMessages(event) {
-    // SW events wrap data in .data, Extension messages are the data itself
-    const message = event.data || event;
+  /* -------------------------------------------------------------------------- */
+  /* API Handlers                                                                */
+  /* -------------------------------------------------------------------------- */
 
-    if (message?.type === "LINKEDIN_PROFILE_URL") {
-      profileUrl = message.profileUrl || "";
-    }
-
-    if (message?.type === "PHONE_UPDATE" && message.apolloId === contactDetails.id) {
-      contactDetails.phone = message.phone;
-      accessingPhone = false;
-      newArrival = true;
-      const key = `${$user?.id}_${profileUrl}`;
-      if (!isExtension) {
-        localStorage.removeItem(key)
-      }else{
-        
-      }
-    }
-
-    console.log("PHONE_EVENT",message,contactDetails)
-
-    if (message?.type === "PHONE_UPDATE_ERROR" && message.apolloId === contactDetails.id) {
-      phoneError = message.message;
-      contactDetails.phone = phoneError
-      accessingPhone = false;
-       newArrival = true;
-       const key = `${$user?.id}_${profileUrl}`;
-      if (!isExtension) {
-        localStorage.removeItem(key)
-      }else{
-        
-      }
-    }
-  }
-  async function handleAccessPhone() {
-    if (!isValidLinkedInProfileUrl(profileUrl)) {
-      phoneError = "Please enter a valid LinkedIn profile URL.";
-      return;
-    }
-    newArrival = false;
-
-    if(!isExtension){
-      const key = `${$user?.id}_${profileUrl}`;
-      localStorage.setItem(key,JSON.stringify({
-          ts: Date.now()
-        }))
-    }else{
-
-    }
-
-    phoneError = null;
-
-    try {
-      accessingPhone = true;
-
-      const data = await enrichContactV3(
-        $user?.id,
-        formatLinkedInUrl(profileUrl),
-        true
-      );
-
-      contactDetails = data
-
-      const payload = {
-        type: "START_PHONE_STREAM",
-         independent: true,
-        apolloId: contactDetails.id
-      };
-      // --- ENVIRONMENT DISPATCH ---
-     await sendPhoneStreamMessage(payload);
-
-    } catch (error) {
-      console.error("Phone access failed:", error);
-      phoneError = "Could not reveal phone.";
-      accessingPhone = false;
-    }
-  }
   async function extractLinkedInProfile() {
     if (!isValidLinkedInProfileUrl(profileUrl)) return;
 
@@ -280,8 +317,8 @@ onMount(() => {
       emailError = "Please enter a valid LinkedIn profile URL.";
       return;
     }
-    newArrival = false;
 
+    newArrival = false;
     emailError = null;
 
     try {
@@ -310,17 +347,51 @@ onMount(() => {
     }
   }
 
+  async function handleAccessPhone() {
+    if (!isValidLinkedInProfileUrl(profileUrl)) {
+      phoneError = "Please enter a valid LinkedIn profile URL.";
+      return;
+    }
 
-  function dismissProfileError() {
-    profileError = null;
-  }
+    newArrival = false;
 
-  function dismissEmailError() {
-    emailError = null;
-  }
+    if (!isExtension) {
+      const key = `${$user?.id}_${profileUrl}`;
 
-  function dismissPhoneError() {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          ts: Date.now()
+        })
+      );
+    } else {
+    }
+
     phoneError = null;
+
+    try {
+      accessingPhone = true;
+
+      const data = await enrichContactV3(
+        $user?.id,
+        formatLinkedInUrl(profileUrl),
+        true
+      );
+
+      contactDetails = data;
+
+      const payload = {
+        type: "START_PHONE_STREAM",
+        independent: true,
+        apolloId: contactDetails.id
+      };
+
+      await sendPhoneStreamMessage(payload);
+    } catch (error) {
+      console.error("Phone access failed:", error);
+      phoneError = "Could not reveal phone.";
+      accessingPhone = false;
+    }
   }
 </script>
 
@@ -328,6 +399,10 @@ onMount(() => {
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
   rel="stylesheet"
 />
+
+<!-- ----------------------------------------------------------------------- -->
+<!-- Snippets                                                                -->
+<!-- ----------------------------------------------------------------------- -->
 
 {#snippet brandHeader()}
   <header class="header">
@@ -358,12 +433,25 @@ onMount(() => {
     {#if isValidLinkedInUrl}
       <div class="profile-box">
         <span class="li-badge" aria-label="LinkedIn">in</span>
+
         <div class="profile-url-block">
           <strong class="profile-url">{profileUrl}</strong>
         </div>
+
         <button class="btn-edit" onclick={clearUrl} aria-label="Edit URL">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"
+            ></path>
           </svg>
         </button>
       </div>
@@ -417,11 +505,26 @@ onMount(() => {
     <p class="section-label">Contact Details</p>
 
     <div class="contact-card" role="list">
+      <!-- Email Row -->
       <div class="contact-row" role="listitem">
         <div class="row-icon email-bg" aria-hidden="true">
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-            <rect x="1" y="2.5" width="11" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3" />
-            <path d="M1 4.5l5.5 3.5L12 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+            <rect
+              x="1"
+              y="2.5"
+              width="11"
+              height="8"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+
+            <path
+              d="M1 4.5l5.5 3.5L12 4.5"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+            />
           </svg>
         </div>
 
@@ -455,45 +558,57 @@ onMount(() => {
 
       <div class="row-divider" role="separator"></div>
 
+      <!-- Phone Row -->
       <div class="contact-row" role="listitem">
-    <div class="row-icon phone-bg" aria-hidden="true">
-     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-    </svg>
-    </div>
-
-    <div class="row-meta">
-      <span class="row-label">Phone Number</span>
-
-      {#if contactDetails?.phone}
-        <strong class="row-value">{contactDetails.phone}</strong>
-      {:else if accessingPhone}
-        <div class="fetching-row mini">
-          <span class="pulse-dot"></span>
-          <span>Revealing...</span>
+        <div class="row-icon phone-bg" aria-hidden="true">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"
+            ></path>
+          </svg>
         </div>
-      {:else}
-        <span class="credits-hint">
-          <span class="dot-bullet" aria-hidden="true"></span>
-          {PHONE_CREDITS} credits to reveal
-        </span>
-      {/if}
 
-      {#if phoneError}
-        {@render inlineError(phoneError, dismissPhoneError)}
-      {/if}
-    </div>
+        <div class="row-meta">
+          <span class="row-label">Phone Number</span>
 
-    {#if !contactDetails?.phone && !accessingPhone}
-      <button
-        class="btn-reveal btn-phone"
-        onclick={handleAccessPhone}
-        disabled={gettingProfile || !isValidLinkedInUrl}
-      >
-        Access Both
-      </button>
-    {/if}
-  </div>
+          {#if contactDetails?.phone}
+            <strong class="row-value">{contactDetails.phone}</strong>
+          {:else if accessingPhone}
+            <div class="fetching-row mini">
+              <span class="pulse-dot"></span>
+              <span>Revealing...</span>
+            </div>
+          {:else}
+            <span class="credits-hint">
+              <span class="dot-bullet" aria-hidden="true"></span>
+              {PHONE_CREDITS} credits to reveal
+            </span>
+          {/if}
+
+          {#if phoneError}
+            {@render inlineError(phoneError, dismissPhoneError)}
+          {/if}
+        </div>
+
+        {#if !contactDetails?.phone && !accessingPhone}
+          <button
+            class="btn-reveal btn-phone"
+            onclick={handleAccessPhone}
+            disabled={gettingProfile || !isValidLinkedInUrl}
+          >
+            Access Both
+          </button>
+        {/if}
+      </div>
     </div>
   </section>
 {/snippet}
@@ -509,11 +624,16 @@ onMount(() => {
 {#snippet inlineError(message, onDismiss)}
   <div class="inline-error" role="alert">
     <span>{message}</span>
+
     <button class="error-dismiss" onclick={onDismiss} aria-label="Dismiss error">
       ×
     </button>
   </div>
 {/snippet}
+
+<!-- ----------------------------------------------------------------------- -->
+<!-- Markup                                                                  -->
+<!-- ----------------------------------------------------------------------- -->
 
 <div class="card">
   {@render brandHeader()}
@@ -525,15 +645,17 @@ onMount(() => {
   {:else}
     {@render profileBlock()}
     {@render fetchingIndicator()}
+
     {#if !gettingProfile}
-    {@render contactCard()}
+      {@render contactCard()}
     {/if}
+
     {@render cardFooter()}
   {/if}
 </div>
 
-{#if contactDetails?.id !=null}
-<SaveToSP contactData={contactDetails} newArrival={newArrival} />
+{#if contactDetails?.id != null}
+  <SaveToSP contactData={contactDetails} newArrival={newArrival} />
 {/if}
 
 <style>
@@ -567,7 +689,7 @@ onMount(() => {
     --font: "DM Sans", system-ui, sans-serif;
   }
 
-.card {
+  .card {
     width: 100%;
     max-width: 380px;
     padding: 18px 18px 14px;
@@ -578,7 +700,7 @@ onMount(() => {
     font-family: var(--font);
     color: var(--c-ink);
     /* Remove height/overflow restrictions */
-    height: auto; 
+    height: auto;
     margin-bottom: 16px; /* Space before SaveToSP component */
   }
 
@@ -679,7 +801,7 @@ onMount(() => {
     flex-shrink: 0;
   }
 
- .btn-edit {
+  .btn-edit {
     margin-left: auto;
     background: transparent;
     border: none;
@@ -712,7 +834,7 @@ onMount(() => {
 
   /* Ensure the URL doesn't overlap the edit button */
   .profile-url-block {
-    flex: 1; 
+    flex: 1;
     min-width: 0;
   }
 
@@ -844,7 +966,7 @@ onMount(() => {
     color: var(--c-ink3);
   }
 
- .row-value {
+  .row-value {
     font-size: 12.5px;
     font-weight: 600;
     color: var(--c-ink);
@@ -964,6 +1086,7 @@ onMount(() => {
       opacity: 0;
       transform: translateY(6px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -976,6 +1099,7 @@ onMount(() => {
       opacity: 0.4;
       transform: scale(0.8);
     }
+
     50% {
       opacity: 1;
       transform: scale(1.1);
@@ -986,6 +1110,7 @@ onMount(() => {
     from {
       background-position: 200% 0;
     }
+
     to {
       background-position: -200% 0;
     }
