@@ -32,6 +32,13 @@
   const EMAIL_CREDITS = 2;
   const PHONE_CREDITS = 10;
 
+  function clearUrl() {
+      profileUrl = "";
+      lastFetchedUrl = "";
+      isValidLinkedInUrl = false;
+      resetContactData();
+    }
+
   function isValidLinkedInProfileUrl(url) {
     if (!url || typeof url !== "string") return false;
 
@@ -70,6 +77,7 @@
     if (!isValidLinkedInUrl) {
       lastFetchedUrl = "";
       resetContactData();
+      clearUrl();
     }
   });
 
@@ -118,9 +126,12 @@ onMount(() => {
         });
     } else if (isExtension) {
       chrome.runtime.onMessage.addListener(handleIncomingMessages);
+      debugger
       chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, (response) => {
+        debugger
         profileUrl = response?.profileUrl || "";
         loading = false;
+        clearUrl()
       });
     } else {
       loading = false;
@@ -143,8 +154,11 @@ onMount(() => {
       newArrival = true;
     }
 
+    console.log("PHONE_EVENT",message,contactDetails)
+
     if (message?.type === "PHONE_UPDATE_ERROR" && message.apolloId === contactDetails.id) {
-      phoneError = message.message || "Failed to fetch phone.";
+      phoneError = message.message;
+      contactDetails.phone = phoneError
       accessingPhone = false;
     }
   }
@@ -166,11 +180,7 @@ onMount(() => {
         true
       );
 debugger
-      contactDetails = {
-        ...contactDetails,
-        id: data?.id || contactDetails.id,
-        email: data?.email || contactDetails.email
-      };
+      contactDetails = data
 debugger
       const payload = {
         type: "START_PHONE_STREAM",
@@ -270,17 +280,6 @@ debugger
 {#snippet brandHeader()}
   <header class="header">
     <div class="brand">
-      <div class="brand-mark">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5" />
-          <path
-            d="M4.5 7h5M7 4.5v5"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-          />
-        </svg>
-      </div>
       <div>
         <p class="brand-eyebrow">SalesPlay Contact Finder</p>
       </div>
@@ -308,9 +307,13 @@ debugger
       <div class="profile-box">
         <span class="li-badge" aria-label="LinkedIn">in</span>
         <div class="profile-url-block">
-          <span class="meta-label">LinkedIn URL</span>
           <strong class="profile-url">{profileUrl}</strong>
         </div>
+        <button class="btn-edit" onclick={clearUrl} aria-label="Edit URL">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+          </svg>
+        </button>
       </div>
     {:else}
       <div class="input-row">
@@ -435,7 +438,7 @@ debugger
         onclick={handleAccessPhone}
         disabled={gettingProfile || !isValidLinkedInUrl}
       >
-        Access Phone
+        Access Both
       </button>
     {/if}
   </div>
@@ -470,12 +473,16 @@ debugger
   {:else}
     {@render profileBlock()}
     {@render fetchingIndicator()}
+    {#if !gettingProfile}
     {@render contactCard()}
+    {/if}
     {@render cardFooter()}
   {/if}
 </div>
 
+{#if contactDetails?.id !=null &&( !accessingPhone)}
 <SaveToSP contactData={contactDetails} newArrival={newArrival} />
+{/if}
 
 <style>
   :global(*) {
@@ -620,10 +627,40 @@ debugger
     flex-shrink: 0;
   }
 
-  .profile-url-block {
+ .btn-edit {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--c-ink3);
+    cursor: pointer;
+    padding: 8px;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+
+  .btn-edit:hover {
+    background: var(--c-border2);
+    color: var(--c-accent);
+  }
+
+  .profile-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-md);
+    animation: fadeUp 0.22s ease both;
+    position: relative; /* Context for button */
+  }
+
+  /* Ensure the URL doesn't overlap the edit button */
+  .profile-url-block {
+    flex: 1; 
     min-width: 0;
   }
 

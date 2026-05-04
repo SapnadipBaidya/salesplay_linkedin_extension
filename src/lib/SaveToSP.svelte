@@ -65,31 +65,23 @@
     open         = true;
     fetchContactLists();
   }
+ 
 
-  async function createNewList() {
+    async function createNewList() {
     if (!searchText.trim()) return;
-    error   = "";
-    creating = true;
+    savingStatus = "saving";
+    error        = "";
+    const userId = $user?.id || user?.id;
     try {
-      const userId = $user?.id || user?.id;
-      const newList = await createGlobalContactList(
+     await createGlobalContactList(
         "save", [], userId, {}, [], [], [contactData], null, searchText
       );
-      const formatted = {
-        id:          newList?._id || newList?.id,
-        name:        newList?.name,
-        count:       0,
-        defaultList: false
-      };
-      contactLists  = [formatted, ...contactLists];
-      filteredLists = contactLists;
-      searchText    = "";
+      searchText=""
+      savingStatus = "success";
     } catch (err) {
-      console.error("Create list failed:", err);
-      error = "Could not create list. Please try again.";
-    } finally {
-      creating = false;
-      resetSelection();
+      console.error("Save failed:", err);
+      savingStatus = "error";
+      error        = "Failed to save contact. Please try again.";
     }
   }
 
@@ -113,8 +105,6 @@
       console.error("Save failed:", err);
       savingStatus = "error";
       error        = "Failed to save contact. Please try again.";
-    } finally {
-      resetSelection();
     }
   }
 </script>
@@ -256,13 +246,24 @@
         </svg>
       {/if}
     </div>
+
     <div class="result-text">
-      <h3>{savingStatus === "success" ? "Saved!" : "Save failed"}</h3>
-      <p>{error || `Contact added to ${selectedList?.name}`}</p>
+      <h3>{savingStatus === "success" ? "Contact Saved" : "Save failed"}</h3>
+      <p>{error || `Successfully added to ${selectedList?.name}`}</p>
     </div>
-    <button class="btn-again" onclick={resetSelection}>
-      {savingStatus === "success" ? "Add to another list" : "Try again"}
-    </button>
+
+    <!-- The Prompt Section -->
+    <div class="next-steps">
+      <p class="prompt-text">Would you like to save this contact to another list?</p>
+      <div class="button-group">
+        <button class="btn-primary" onclick={resetSelection}>
+          Yes, choose another
+        </button>
+        <button class="btn-secondary" onclick={() => (newArrival = false)}>
+          No, I'm done
+        </button>
+      </div>
+    </div>
   </div>
 {/snippet}
 
@@ -641,6 +642,50 @@
     height: 26px;
     border-width: 2.5px;
   }
+  .next-steps {
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--c-border2);
+    width: 100%;
+  }
+
+  .prompt-text {
+    font-size: 11.5px;
+    color: var(--c-ink);
+    margin-bottom: 12px;
+    font-weight: 500;
+  }
+
+  .button-group {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .btn-primary {
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: var(--c-accent);
+    color: white;
+    border: none;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn-secondary {
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: var(--c-surface);
+    color: var(--c-ink2);
+    border: 1px solid var(--c-border);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn-primary:hover { background: var(--c-accent-h); }
+  .btn-secondary:hover { background: var(--c-bg); }
 
   @keyframes spin {
     to { transform: rotate(360deg); }
