@@ -37,7 +37,10 @@ let { deductCredits = $bindable() } = $props();
   }
 
   $effect(()=>{
-fetchTransactions();
+    if ($user?.id!=null) {
+      fetchTransactions();
+    }
+
   })
 </script>
 

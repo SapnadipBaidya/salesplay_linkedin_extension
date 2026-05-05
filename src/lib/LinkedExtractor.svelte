@@ -193,7 +193,7 @@
     const key = getPendingContactKey($user?.id, linkedinURL);
 
     checkPendingPhoneState(key);
-    
+
     const handleTabActivated = async () => {
       await updateUrl();
     };
@@ -313,17 +313,20 @@
           loading = false;
         });
 
-         return () => {
-      navigator.serviceWorker.removeEventListener("message", handleIncomingMessages); // ❌ missing
-    };
+      return () => {
+        navigator.serviceWorker.removeEventListener(
+          "message",
+          handleIncomingMessages,
+        ); // ❌ missing
+      };
     } else if (isExtension) {
       chrome.runtime.onMessage.addListener(handleIncomingMessages);
       chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, (response) => {
         profileUrl = response?.profileUrl || "";
         loading = false;
-       return () => {
-      chrome.runtime.onMessage.removeListener(handleIncomingMessages); 
-    };
+        return () => {
+          chrome.runtime.onMessage.removeListener(handleIncomingMessages);
+        };
       });
     } else {
       loading = false;
@@ -341,10 +344,16 @@
 
     try {
       gettingProfile = true;
+      contactDetails = {
+        email: null,
+        phone: null,
+        id: null,
+      };
+       newArrival = false;
       lastFetchedUrl = profileUrl;
 
       const formattedUrl = formatLinkedInUrl(profileUrl);
-
+      loading = true;
       const data = await getApolloContactDetails(
         formattedUrl,
         $user?.company_id,
@@ -357,6 +366,7 @@
       profileError = "Could not fetch contact data. Try again.";
     } finally {
       gettingProfile = false;
+      loading = false;
     }
   }
 

@@ -1,18 +1,34 @@
 // @ts-nocheck
 import { iq_api_v2 } from "./authUtils";
 
+let apolloAbortController = null;
 
 export const getApolloContactDetails = async (linkedin_url, company_id) => {
   try {
-    const query = `linkedin_url=${linkedin_url}&company_id=${encodeURIComponent(company_id)}`;
+    if (apolloAbortController) {
+      apolloAbortController.abort();
+    }
+
+    apolloAbortController = new AbortController();
 
     const response = await iq_api_v2.post(
-      `/linkedin_connector/get_apollo_contact_details?${query}`,
-      null
+      `/linkedin_connector/get_apollo_contact_details`,
+      null,
+      {
+        params: {
+          linkedin_url,
+          company_id,
+        },
+        signal: apolloAbortController.signal,
+      }
     );
 
     return response.data;
   } catch (error) {
+    if (error.name === "CanceledError" || error.code === "ERR_CANCELED") {
+      return null;
+    }
+
     console.error("Error fetching contact details:", error);
     throw error;
   }
