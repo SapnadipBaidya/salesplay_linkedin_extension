@@ -1,133 +1,136 @@
 <script>
-  import { Progress } from "bits-ui";
+let { deductCredits = $bindable() } = $props();
+  import { getContext, onMount } from "svelte";
+  import { getCreditBalance, getCreditTransactions } from "../apiUtils";
 
-  export let usedCredits = 120;
-  export let totalCredits = 200;
-  export let label = "Credits";
+  const fmt = (n) => n.toLocaleString();
+  const user = getContext("userContext");
 
-  $: safeTotal = Math.max(Number(totalCredits) || 0, 0);
-  $: safeUsed = Math.max(Number(usedCredits) || 0, 0);
-  $: leftCredits = Math.max(safeTotal - safeUsed, 0);
-  $: progress = safeTotal ? Math.min((safeUsed / safeTotal) * 100, 100) : 0;
-  $: state = progress >= 90 ? "danger" : progress >= 70 ? "warn" : "ok";
+  let currentBalance = $state(0);
+  let totalBalance = $state(0);
+  let loading = $state(true);
+  deductCredits = (amount) => {
+    if (typeof amount !== "number" || amount <= 0) return;
+    currentBalance = Math.max(0, currentBalance - amount);
+  };
+  const pct = $derived(
+    totalBalance > 0 ? Math.min((currentBalance / totalBalance) * 100, 100) : 0
+  );
+
+  onMount(async () => {
+    const [balanceResp, transactionsResp] = await Promise.all([
+      getCreditBalance($user?.id),
+      getCreditTransactions($user?.id),
+    ]);
+
+    currentBalance = balanceResp ?? 0;
+
+    const creditsArray = Array.isArray(transactionsResp) ? transactionsResp : [];
+    totalBalance = creditsArray
+      .filter((item) => item?.type === "credit")
+      .reduce((sum, item) => sum + (item?.credits ?? 0), 0);
+
+    loading = false;
+    console.log("user credit", currentBalance, totalBalance);
+  });
 </script>
 
-<section class="credits-card" aria-label="Credit usage">
-  <div class="content">
-    <div class="main">
-      <span class="label">{label}</span>
-
-      <div class="value">
-        <span class="used">{safeUsed}</span>
-        <span class="total">/{safeTotal}</span>
-      </div>
-    </div>
-
-    <span class="chip {state}">
-      {leftCredits} left
-    </span>
+<div class="credits-bar">
+  <div class="row">
+    <span class="label">Credits</span>
+    {#if loading}
+      <span class="skeleton skeleton-count"></span>
+    {:else}
+      <span class="count">{fmt(currentBalance)} / {fmt(totalBalance)}</span>
+    {/if}
   </div>
 
-  <Progress.Root
-    class="progress-root {state}"
-    value={progress}
-    max={100}
-    aria-label="Credit usage"
-  />
-</section>
+  <div class="track">
+    {#if loading}
+      <div class="fill shimmer"></div>
+    {:else}
+      <div class="fill" style="width: {pct}%"></div>
+    {/if}
+  </div>
+</div>
 
 <style>
-  .credits-card {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 10px 11px;
-    border: 1px solid rgba(148, 163, 184, 0.22);
-    border-radius: 14px;
-    color: #fff;
-    background:
-      radial-gradient(circle at 0% 0%, rgba(96, 165, 250, 0.28), transparent 34%),
-      linear-gradient(135deg, #020617, #0f172a);
-    box-shadow: 0 10px 24px rgba(2, 6, 23, 0.18);
+  .credits-bar {
+    border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+    margin-bottom: 1rem;
   }
 
-  .content {
+  .row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    margin-bottom: 8px;
   }
 
   .label {
-    display: block;
-    margin-bottom: 3px;
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
+    font-size: 11px;
+    font-weight: 500;
+    color: #888780;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
-  .value {
-    display: flex;
-    align-items: baseline;
-    line-height: 1;
+  .count {
+    font-size: 12px;
+    font-weight: 500;
+    color: #888780;
   }
 
-  .used {
-    font-size: 24px;
-    font-weight: 850;
-    line-height: 0.9;
-    letter-spacing: -0.06em;
-  }
-
-  .total {
-    color: rgba(255, 255, 255, 0.48);
-    font-size: 13px;
-    font-weight: 750;
-  }
-
-  .chip {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    min-height: 21px;
-    padding: 0 8px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: #bbf7d0;
-    font-size: 10.5px;
-    font-weight: 800;
-    white-space: nowrap;
-  }
-
-  .chip.warn {
-    color: #fde68a;
-  }
-
-  .chip.danger {
-    color: #fecaca;
-  }
-
-  :global(.progress-root) {
-    height: 6px;
-    margin-top: 8px;
+  /* --- track --- */
+  .track {
+    height: 5px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 99px;
     overflow: hidden;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.13);
   }
 
-  :global(.progress-root > div) {
+  .fill {
     height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, #60a5fa, #2563eb);
-    transition: width 320ms ease;
+    background: #7f77dd;
+    border-radius: 99px;
+    transition: width 0.5s ease;
   }
 
-  :global(.progress-root.warn > div) {
-    background: linear-gradient(90deg, #fbbf24, #f59e0b);
+  /* --- skeleton base --- */
+  .skeleton {
+    display: inline-block;
+    border-radius: 6px;
+    background: linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.06) 25%,
+      rgba(0, 0, 0, 0.12) 50%,
+      rgba(0, 0, 0, 0.06) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
   }
 
-  :global(.progress-root.danger > div) {
-    background: linear-gradient(90deg, #fb7185, #ef4444);
+  .skeleton-count {
+    width: 110px;
+    height: 12px;
+  }
+
+  /* --- shimmer fill on the bar itself --- */
+  .fill.shimmer {
+    width: 40%;
+    opacity: 0.45;
+    background: linear-gradient(
+      90deg,
+      #afa9ec 25%,
+      #7f77dd 50%,
+      #afa9ec 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
 </style>

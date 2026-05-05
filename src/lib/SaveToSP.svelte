@@ -119,8 +119,8 @@
     aria-expanded={open}
   >
     <div class="trigger-body">
-      <span class="trigger-eyebrow">Add to Contact List</span>
-      <strong class="trigger-value">{selectedList?.name || "Select a list…"}</strong>
+      <span class="trigger-eyebrow">Add to SalesPlay Contacts</span>
+      <strong class="trigger-value">{selectedList?.name || "Select a list"}</strong>
     </div>
     <span class="chevron" class:open aria-hidden="true">
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -330,8 +330,9 @@
     align-items: center;
     justify-content: space-between;
     padding: 11px 13px;
-    background: var(--c-surface);
+    background: var(--c-bg);
     border: 1px solid var(--c-border);
+    box-shadow: var(--shadow-card);
     border-radius: 14px;
     cursor: pointer;
     font-family: var(--font);

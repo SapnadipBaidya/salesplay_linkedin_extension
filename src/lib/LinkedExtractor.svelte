@@ -9,6 +9,7 @@
   import { enrichContactV3, getApolloContactDetails } from "../apiUtils";
 
   import SaveToSP from "./SaveToSP.svelte";
+    import CreditsComp from "./CreditsComp.svelte";
 
   /* -------------------------------------------------------------------------- */
   /* Props                                                                       */
@@ -36,6 +37,7 @@
   let gettingProfile = $state(false);
   let accessingEmail = $state(false);
   let accessingPhone = $state(false);
+  let deductCredits = $state();
 
   let profileUrl = $state("");
   let loading = $state(true);
@@ -214,11 +216,13 @@ $effect(() => {
       message.apolloId === contactDetails.id
     ) {
       contactDetails.phone = message.phone;
+      deductCredits?.(PHONE_CREDITS); 
       accessingPhone = false;
       newArrival = true;
 
       const key = getPendingContactKey($user?.id,$profileUrl);
-      removePendingPhoneState(key); 
+      removePendingPhoneState(key);
+      
     }
 
     console.log("PHONE_EVENT", message, contactDetails);
@@ -227,6 +231,7 @@ $effect(() => {
       message?.type === "PHONE_UPDATE_ERROR" &&
       message.apolloId === contactDetails.id
     ) {
+            deductCredits?.(PHONE_CREDITS);
       phoneError = message.message;
       contactDetails.phone = phoneError;
       accessingPhone = false;
@@ -234,6 +239,7 @@ $effect(() => {
 
       const key = getPendingContactKey($user?.id,$profileUrl);
       removePendingPhoneState(key); 
+
     }
   }
 
@@ -309,7 +315,7 @@ $effect(() => {
       emailError = "Please enter a valid LinkedIn profile URL.";
       return;
     }
-
+    
     newArrival = false;
     emailError = null;
 
@@ -331,11 +337,13 @@ $effect(() => {
       if (data?.email) {
         newArrival = true;
       }
+      deductCredits?.(EMAIL_CREDITS);
     } catch (error) {
       console.error("Email access failed:", error);
       emailError = "Could not reveal email. Credits not charged.";
     } finally {
       accessingEmail = false;
+     
     }
   }
 
@@ -390,11 +398,13 @@ $effect(() => {
 
 {#snippet brandHeader()}
   <header class="header">
+  
     <div class="brand">
       <div>
         <p class="brand-eyebrow">SalesPlay Contact Finder</p>
       </div>
     </div>
+    
 
     <button class="btn-logout" onclick={onLogout} aria-label="Log out">
       Logout
@@ -620,6 +630,7 @@ $effect(() => {
 <!-- ----------------------------------------------------------------------- -->
 
 <div class="card">
+<CreditsComp bind:deductCredits />
   {@render brandHeader()}
 
   <div class="divider"></div>

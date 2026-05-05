@@ -35,7 +35,7 @@ export async function enrichContactV3(userId,linkedinUrl, phoneAccess=false,onSu
     if (phoneAccess) {
       base.enrich_phone = true
     }
-    const response = await iq_api_v2.post("contact/enrich_contact_v3", base);
+    const response = await iq_api_v2.post("/contact/enrich_contact_v3", base);
     if (!response?.data?.email) {
       throw "Email Not Forund"
     }
@@ -61,7 +61,7 @@ export async function getSavedGlobalContactsPerUserId(userId) {
     formData.append("user_id", userId); // ✅ key name must match API requirement
 
     const resp = await iq_api_v2.post(
-      "contact/get_user_filters",
+      "/contact/get_user_filters",
       formData,
       {
         headers: {
@@ -154,5 +154,50 @@ export async function createGlobalContactList(
     // Better error logging for debugging API responses
     console.error("Export failed:", error.response?.data || error.message);
     throw error;
+  }
+}
+
+
+export async function getCreditBalance(userId) {
+  try {
+    const formData = new FormData();
+    formData.append("user_id", userId); 
+
+    const resp = await iq_api_v2.post(
+      "/credit/get_balance",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        }
+      }
+    );
+    return resp?.data;
+  } catch (error) {
+    console.error("deleteContactFilter error:", error);
+    return false
+
+  }
+}
+
+export async function getCreditTransactions(userId) {
+  try {
+    const formData = new FormData();
+    formData.append("user_id", userId); // ✅ key name must match API requirement
+
+    const resp = await iq_api_v2.post(
+      "/credit/get_transactions",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        }
+      }
+    );
+    return resp?.data;
+  } catch (error) {
+    console.error("deleteContactFilter error:", error);
+    return false
+
   }
 }
