@@ -4,16 +4,11 @@ import { iq_api_v2 } from "./authUtils";
 
 export const getApolloContactDetails = async (linkedin_url, company_id) => {
   try {
+    const query = `linkedin_url=${linkedin_url}&company_id=${encodeURIComponent(company_id)}`;
+
     const response = await iq_api_v2.post(
-      `/linkedin_connector/get_apollo_contact_details`,
-      null, // No request body
-      {
-        params: {
-          linkedin_url: linkedin_url,
-          company_id: company_id
-        },
-        // Using params causes Axios to append ?linkedin_url=...&company_id=... to the URL
-      }
+      `/linkedin_connector/get_apollo_contact_details?${query}`,
+      null
     );
 
     return response.data;

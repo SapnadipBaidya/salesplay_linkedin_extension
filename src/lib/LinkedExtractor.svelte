@@ -5,11 +5,17 @@
   import { onMount, getContext } from "svelte";
 
   import { isExtension } from "../authUtils";
-  import { formatLinkedInUrl, getPendingContactKey, getPendingPhoneState, removePendingPhoneState, setPendingPhoneState } from "../uiUtils";
+  import {
+    formatLinkedInUrl,
+    getPendingContactKey,
+    getPendingPhoneState,
+    removePendingPhoneState,
+    setPendingPhoneState,
+  } from "../uiUtils";
   import { enrichContactV3, getApolloContactDetails } from "../apiUtils";
 
   import SaveToSP from "./SaveToSP.svelte";
-    import CreditsComp from "./CreditsComp.svelte";
+  import CreditsComp from "./CreditsComp.svelte";
 
   /* -------------------------------------------------------------------------- */
   /* Props                                                                       */
@@ -46,10 +52,23 @@
   let emailError = $state(null);
   let phoneError = $state(null);
 
+  async function updateUrl() {
+    if (isExtension) {
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (tab?.url) {
+        profileUrl = tab.url;
+      }
+    } else {
+      return null;
+    }
+  }
   let contactDetails = $state({
     email: null,
     phone: null,
-    id: null
+    id: null,
   });
 
   let newArrival = $state(false);
@@ -94,7 +113,7 @@
     contactDetails = {
       email: null,
       phone: null,
-      id: null
+      id: null,
     };
 
     newArrival = false;
@@ -116,65 +135,93 @@
     phoneError = null;
   }
 
-
   async function checkPendingPhoneState(key) {
-  const data = await getPendingPhoneState(key);
+    const data = await getPendingPhoneState(key);
 
-  if (!data) {
-    accessingPhone = false;
-    return;
+    if (!data) {
+      accessingPhone = false;
+      return;
+    }
+
+    const tenMinutes = 10 * 60 * 1000;
+    const isExpired = Date.now() - data?.ts > tenMinutes;
+
+    if (isExpired) {
+      await removePendingPhoneState(key);
+      console.log("Expired pending phone key deleted:", key);
+      accessingPhone = false;
+      return;
+    }
+
+    const hasValidPhone =
+      contactDetails?.phone?.length > 8 &&
+      contactDetails?.phone !== "not found" &&
+      contactDetails?.phone != null;
+
+    if (hasValidPhone) {
+      await removePendingPhoneState(key);
+      accessingPhone = false;
+      return;
+    }
+
+    accessingPhone = true;
   }
-
-  const tenMinutes = 10 * 60 * 1000;
-  const isExpired = Date.now() - data?.ts > tenMinutes;
-
-  if (isExpired) {
-    await removePendingPhoneState(key);
-    console.log("Expired pending phone key deleted:", key);
-    accessingPhone = false;
-    return;
-  }
-
-  const hasValidPhone =
-    contactDetails?.phone?.length > 8 &&
-    contactDetails?.phone !== "not found" &&
-    contactDetails?.phone != null;
-
-  if (hasValidPhone) {
-    await removePendingPhoneState(key);
-    accessingPhone = false;
-    return;
-  }
-
-  accessingPhone = true;
-}
 
   /* -------------------------------------------------------------------------- */
   /* Reactive Effect                                                             */
   /* -------------------------------------------------------------------------- */
 
-$effect(() => {
-  const linkedinURL = profileUrl
-  isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
+  $effect(() => {
+    updateUrl();
+    const linkedinURL = profileUrl;
+    isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
 
-  if (!loading && isValidLinkedInUrl && linkedinURL !== lastFetchedUrl) {
-    extractLinkedInProfile();
-  }
+    if (!loading && isValidLinkedInUrl && linkedinURL !== lastFetchedUrl) {
+      extractLinkedInProfile();
+    }
 
-  if (!linkedinURL) {
-    return;
-  }
+    if (!linkedinURL) {
+      return;
+    }
 
-  if (!isValidLinkedInUrl) {
-    lastFetchedUrl = "";
-    resetContactData();
-    return;
-  }
+    if (!isValidLinkedInUrl) {
+      lastFetchedUrl = "";
+      resetContactData();
+      return;
+    }
 
-  const key = getPendingContactKey($user?.id,linkedinURL);
+    const key = getPendingContactKey($user?.id, linkedinURL);
 
-  checkPendingPhoneState(key);
-});
+    checkPendingPhoneState(key);
+    
+    const handleTabActivated = async () => {
+      await updateUrl();
+    };
+
+    // When active tab URL changes
+    const handleTabUpdated = async (tabId, changeInfo, tab) => {
+      if (changeInfo.url || changeInfo.status === "complete") {
+        const [activeTab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+
+        if (activeTab?.id === tabId && activeTab?.url) {
+          profileUrl = activeTab.url;
+          console.log("Updated active tab URL:", profileUrl);
+        }
+      }
+    };
+
+    chrome.tabs.onActivated.addListener(handleTabActivated);
+    chrome.tabs.onUpdated.addListener(handleTabUpdated);
+
+    // Cleanup when component unmounts
+    return () => {
+      chrome.tabs.onActivated.removeListener(handleTabActivated);
+      chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+    };
+  });
 
   /* -------------------------------------------------------------------------- */
   /* Messaging                                                                   */
@@ -216,13 +263,12 @@ $effect(() => {
       message.apolloId === contactDetails.id
     ) {
       contactDetails.phone = message.phone;
-      deductCredits?.(PHONE_CREDITS); 
+      deductCredits?.(PHONE_CREDITS);
       accessingPhone = false;
       newArrival = true;
 
-      const key = getPendingContactKey($user?.id,$profileUrl);
+      const key = getPendingContactKey($user?.id, $profileUrl);
       removePendingPhoneState(key);
-      
     }
 
     console.log("PHONE_EVENT", message, contactDetails);
@@ -231,15 +277,14 @@ $effect(() => {
       message?.type === "PHONE_UPDATE_ERROR" &&
       message.apolloId === contactDetails.id
     ) {
-            deductCredits?.(PHONE_CREDITS);
+      deductCredits?.(PHONE_CREDITS);
       phoneError = message.message;
       contactDetails.phone = phoneError;
       accessingPhone = false;
       newArrival = true;
 
-      const key = getPendingContactKey($user?.id,$profileUrl);
-      removePendingPhoneState(key); 
-
+      const key = getPendingContactKey($user?.id, $profileUrl);
+      removePendingPhoneState(key);
     }
   }
 
@@ -258,7 +303,7 @@ $effect(() => {
         .then(() => {
           navigator.serviceWorker.addEventListener(
             "message",
-            handleIncomingMessages
+            handleIncomingMessages,
           );
 
           loading = false;
@@ -267,13 +312,18 @@ $effect(() => {
           console.error("SW failed:", error);
           loading = false;
         });
+
+         return () => {
+      navigator.serviceWorker.removeEventListener("message", handleIncomingMessages); // ❌ missing
+    };
     } else if (isExtension) {
       chrome.runtime.onMessage.addListener(handleIncomingMessages);
       chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, (response) => {
-
         profileUrl = response?.profileUrl || "";
         loading = false;
-        // clearUrl();
+       return () => {
+      chrome.runtime.onMessage.removeListener(handleIncomingMessages); 
+    };
       });
     } else {
       loading = false;
@@ -297,11 +347,11 @@ $effect(() => {
 
       const data = await getApolloContactDetails(
         formattedUrl,
-        $user?.company_id
+        $user?.company_id,
       );
 
-      contactDetails=data
-      newArrival=true
+      contactDetails = data;
+      newArrival = true;
     } catch (error) {
       console.error("Profile extraction failed:", error);
       profileError = "Could not fetch contact data. Try again.";
@@ -315,7 +365,7 @@ $effect(() => {
       emailError = "Please enter a valid LinkedIn profile URL.";
       return;
     }
-    
+
     newArrival = false;
     emailError = null;
 
@@ -325,13 +375,13 @@ $effect(() => {
       const data = await enrichContactV3(
         $user?.id,
         formatLinkedInUrl(profileUrl),
-        false
+        false,
       );
 
       contactDetails = {
         ...contactDetails,
         ...data,
-        email: data?.email || "Not Found"
+        email: data?.email || "Not Found",
       };
 
       if (data?.email) {
@@ -343,48 +393,47 @@ $effect(() => {
       emailError = "Could not reveal email. Credits not charged.";
     } finally {
       accessingEmail = false;
-     
     }
   }
 
- async function handleAccessPhone() {
-  if (!isValidLinkedInProfileUrl(profileUrl)) {
-    phoneError = "Please enter a valid LinkedIn profile URL.";
-    return;
+  async function handleAccessPhone() {
+    if (!isValidLinkedInProfileUrl(profileUrl)) {
+      phoneError = "Please enter a valid LinkedIn profile URL.";
+      return;
+    }
+
+    newArrival = false;
+    phoneError = null;
+
+    const key = getPendingContactKey();
+    await setPendingPhoneState(key);
+
+    try {
+      accessingPhone = true;
+
+      const data = await enrichContactV3(
+        $user?.id,
+        formatLinkedInUrl(profileUrl),
+        true,
+      );
+
+      contactDetails = data;
+
+      const payload = {
+        type: "START_PHONE_STREAM",
+        independent: true,
+        apolloId: contactDetails.id,
+      };
+
+      await sendPhoneStreamMessage(payload);
+    } catch (error) {
+      console.error("Phone access failed:", error);
+      phoneError = "Could not reveal phone.";
+      accessingPhone = false;
+
+      await removePendingPhoneState(key);
+    }
   }
-
-  newArrival = false;
-  phoneError = null;
-
-  const key = getPendingContactKey();
-  await setPendingPhoneState(key);
-
-  try {
-    accessingPhone = true;
-
-    const data = await enrichContactV3(
-      $user?.id,
-      formatLinkedInUrl(profileUrl),
-      true
-    );
-
-    contactDetails = data;
-
-    const payload = {
-      type: "START_PHONE_STREAM",
-      independent: true,
-      apolloId: contactDetails.id
-    };
-
-    await sendPhoneStreamMessage(payload);
-  } catch (error) {
-    console.error("Phone access failed:", error);
-    phoneError = "Could not reveal phone.";
-    accessingPhone = false;
-
-    await removePendingPhoneState(key);
-  }
-}
 </script>
 
 <link
@@ -398,13 +447,11 @@ $effect(() => {
 
 {#snippet brandHeader()}
   <header class="header">
-  
     <div class="brand">
       <div>
         <p class="brand-eyebrow">SalesPlay Contact Finder</p>
       </div>
     </div>
-    
 
     <button class="btn-logout" onclick={onLogout} aria-label="Log out">
       Logout
@@ -413,7 +460,11 @@ $effect(() => {
 {/snippet}
 
 {#snippet skeletonLoader()}
-  <div class="skeleton-stack" aria-busy="true" aria-label="Loading contact data">
+  <div
+    class="skeleton-stack"
+    aria-busy="true"
+    aria-label="Loading contact data"
+  >
     <div class="skeleton sk-tall"></div>
     <div class="skeleton sk-short"></div>
     <div class="skeleton sk-short"></div>
@@ -443,8 +494,7 @@ $effect(() => {
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <path
-              d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"
+            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"
             ></path>
           </svg>
         </button>
@@ -619,7 +669,11 @@ $effect(() => {
   <div class="inline-error" role="alert">
     <span>{message}</span>
 
-    <button class="error-dismiss" onclick={onDismiss} aria-label="Dismiss error">
+    <button
+      class="error-dismiss"
+      onclick={onDismiss}
+      aria-label="Dismiss error"
+    >
       ×
     </button>
   </div>
@@ -630,7 +684,7 @@ $effect(() => {
 <!-- ----------------------------------------------------------------------- -->
 
 <div class="card">
-<CreditsComp bind:deductCredits />
+  <CreditsComp bind:deductCredits />
   {@render brandHeader()}
 
   <div class="divider"></div>
@@ -650,7 +704,7 @@ $effect(() => {
 </div>
 
 {#if contactDetails?.id != null}
-  <SaveToSP contactData={contactDetails} newArrival={newArrival} />
+  <SaveToSP contactData={contactDetails} {newArrival} />
 {/if}
 
 <style>
