@@ -2,6 +2,12 @@
   "manifest_version": 3,
   "name": "SalesPlay LinkedIn Extension",
   "version": "1.0.0",
+    "icons": {
+    "16": "/fav.png",
+    "32": "/fav.png",
+    "48": "/fav.png",
+    "128": "/fav.png"
+  },
   "description": "Reads LinkedIn profile URL and connects with SalesPlay.",
   "permissions": [
     "storage",
