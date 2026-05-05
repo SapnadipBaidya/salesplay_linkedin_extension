@@ -5,7 +5,7 @@
   import { onMount, getContext } from "svelte";
 
   import { isExtension } from "../authUtils";
-  import { formatLinkedInUrl } from "../uiUtils";
+  import { formatLinkedInUrl, getPendingContactKey, getPendingPhoneState, removePendingPhoneState, setPendingPhoneState } from "../uiUtils";
   import { enrichContactV3, getApolloContactDetails } from "../apiUtils";
 
   import SaveToSP from "./SaveToSP.svelte";
@@ -114,60 +114,65 @@
     phoneError = null;
   }
 
+
+  async function checkPendingPhoneState(key) {
+  const data = await getPendingPhoneState(key);
+
+  if (!data) {
+    accessingPhone = false;
+    return;
+  }
+
+  const tenMinutes = 10 * 60 * 1000;
+  const isExpired = Date.now() - data?.ts > tenMinutes;
+
+  if (isExpired) {
+    await removePendingPhoneState(key);
+    console.log("Expired pending phone key deleted:", key);
+    accessingPhone = false;
+    return;
+  }
+
+  const hasValidPhone =
+    contactDetails?.phone?.length > 8 &&
+    contactDetails?.phone !== "not found" &&
+    contactDetails?.phone != null;
+
+  if (hasValidPhone) {
+    await removePendingPhoneState(key);
+    accessingPhone = false;
+    return;
+  }
+
+  accessingPhone = true;
+}
+
   /* -------------------------------------------------------------------------- */
   /* Reactive Effect                                                             */
   /* -------------------------------------------------------------------------- */
 
-  $effect(() => {
-    isValidLinkedInUrl = isValidLinkedInProfileUrl(profileUrl);
+$effect(() => {
+  const linkedinURL = profileUrl
+  isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
 
-    if (!loading && isValidLinkedInUrl && profileUrl !== lastFetchedUrl) {
-      extractLinkedInProfile();
-    }
+  if (!loading && isValidLinkedInUrl && linkedinURL !== lastFetchedUrl) {
+    extractLinkedInProfile();
+  }
 
-    if (!isValidLinkedInUrl) {
-      lastFetchedUrl = "";
-      resetContactData();
-      clearUrl();
-    }
+  if (!linkedinURL) {
+    return;
+  }
 
-    const key = `${$user?.id}_${profileUrl}`;
+  if (!isValidLinkedInUrl) {
+    lastFetchedUrl = "";
+    resetContactData();
+    return;
+  }
 
-    if (!isExtension) {
-      const rawData = localStorage.getItem(key);
+  const key = getPendingContactKey($user?.id,linkedinURL);
 
-      if (rawData) {
-        try {
-          const data = JSON.parse(rawData);
-
-          const tenMinutes = 10 * 60 * 1000;
-          const isExpired = Date.now() - data?.ts > tenMinutes;
-
-          if (isExpired) {
-            localStorage.removeItem(key);
-            console.log("Expired localStorage key deleted:", key);
-            accessingPhone = false;
-          }
-
-          if (
-            contactDetails?.phone?.length > 8 &&
-            contactDetails?.phone != "not found" &&
-            contactDetails?.phone != null
-          ) {
-            localStorage.removeItem(key);
-          } else {
-            console.log("Valid cached data:", data);
-            accessingPhone = true;
-          }
-        } catch (error) {
-          console.error("Invalid localStorage data, deleting key:", error);
-          localStorage.removeItem(key);
-        }
-      } else {
-        accessingPhone = false;
-      }
-    }
-  });
+  checkPendingPhoneState(key);
+});
 
   /* -------------------------------------------------------------------------- */
   /* Messaging                                                                   */
@@ -212,12 +217,8 @@
       accessingPhone = false;
       newArrival = true;
 
-      const key = `${$user?.id}_${profileUrl}`;
-
-      if (!isExtension) {
-        localStorage.removeItem(key);
-      } else {
-      }
+      const key = getPendingContactKey($user?.id,$profileUrl);
+      removePendingPhoneState(key); 
     }
 
     console.log("PHONE_EVENT", message, contactDetails);
@@ -231,12 +232,8 @@
       accessingPhone = false;
       newArrival = true;
 
-      const key = `${$user?.id}_${profileUrl}`;
-
-      if (!isExtension) {
-        localStorage.removeItem(key);
-      } else {
-      }
+      const key = getPendingContactKey($user?.id,$profileUrl);
+      removePendingPhoneState(key); 
     }
   }
 
@@ -266,15 +263,11 @@
         });
     } else if (isExtension) {
       chrome.runtime.onMessage.addListener(handleIncomingMessages);
-
-      debugger;
-
       chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, (response) => {
-        debugger;
 
         profileUrl = response?.profileUrl || "";
         loading = false;
-        clearUrl();
+        // clearUrl();
       });
     } else {
       loading = false;
@@ -301,9 +294,8 @@
         $user?.company_id
       );
 
-      contactDetails.email = data?.email_result || null;
-      contactDetails.phone = data?.phone_result?.sanitized_number || null;
-      contactDetails.id = data?.id || null;
+      contactDetails=data
+      newArrival=true
     } catch (error) {
       console.error("Profile extraction failed:", error);
       profileError = "Could not fetch contact data. Try again.";
@@ -347,52 +339,44 @@
     }
   }
 
-  async function handleAccessPhone() {
-    if (!isValidLinkedInProfileUrl(profileUrl)) {
-      phoneError = "Please enter a valid LinkedIn profile URL.";
-      return;
-    }
-
-    newArrival = false;
-
-    if (!isExtension) {
-      const key = `${$user?.id}_${profileUrl}`;
-
-      localStorage.setItem(
-        key,
-        JSON.stringify({
-          ts: Date.now()
-        })
-      );
-    } else {
-    }
-
-    phoneError = null;
-
-    try {
-      accessingPhone = true;
-
-      const data = await enrichContactV3(
-        $user?.id,
-        formatLinkedInUrl(profileUrl),
-        true
-      );
-
-      contactDetails = data;
-
-      const payload = {
-        type: "START_PHONE_STREAM",
-        independent: true,
-        apolloId: contactDetails.id
-      };
-
-      await sendPhoneStreamMessage(payload);
-    } catch (error) {
-      console.error("Phone access failed:", error);
-      phoneError = "Could not reveal phone.";
-      accessingPhone = false;
-    }
+ async function handleAccessPhone() {
+  if (!isValidLinkedInProfileUrl(profileUrl)) {
+    phoneError = "Please enter a valid LinkedIn profile URL.";
+    return;
   }
+
+  newArrival = false;
+  phoneError = null;
+
+  const key = getPendingContactKey();
+  await setPendingPhoneState(key);
+
+  try {
+    accessingPhone = true;
+
+    const data = await enrichContactV3(
+      $user?.id,
+      formatLinkedInUrl(profileUrl),
+      true
+    );
+
+    contactDetails = data;
+
+    const payload = {
+      type: "START_PHONE_STREAM",
+      independent: true,
+      apolloId: contactDetails.id
+    };
+
+    await sendPhoneStreamMessage(payload);
+  } catch (error) {
+    console.error("Phone access failed:", error);
+    phoneError = "Could not reveal phone.";
+    accessingPhone = false;
+
+    await removePendingPhoneState(key);
+  }
+}
 </script>
 
 <link

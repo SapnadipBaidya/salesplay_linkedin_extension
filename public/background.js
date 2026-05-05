@@ -21,49 +21,92 @@ chrome.runtime.onInstalled.addListener(() => {
  * --- MESSAGING HANDLERS (EXTENSION) ---
  */
 if (isExtension) {
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.type) {
-    case "START_PHONE_STREAM":
-      debugger
-      startPhoneStream(message?.independent, message.apolloId);
-      break;
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    switch (message.type) {
+      case "START_PHONE_STREAM":
+        startPhoneStream(message?.independent, message.apolloId);
+        break;
 
-    case "STOP_PHONE_STREAM":
-      stopPhoneStream(message.apolloId);
-      break;
+      case "STOP_PHONE_STREAM":
+        stopPhoneStream(message.apolloId);
+        break;
 
-    case "LINKEDIN_PROFILE_URL":
-      chrome.storage.session.set({ linkedinProfileUrl: message.profileUrl }, () => {
-        sendResponse({ success: true });
-      });
-      return true; // Keep channel open for async response
+      case "SAVE_PENDING_CONTACT_KEY": {
+        chrome.storage.session.set(
+          {
+            [message.key]: message.value
+          },
+          () => {
+            sendResponse({ success: true });
+          }
+        );
 
-    case "GET_PROFILE_URL":
-      chrome.storage.session.get("linkedinProfileUrl", (result) => {
-        sendResponse({ profileUrl: result.linkedinProfileUrl || null });
-      });
-      return true;
+        return true;
+      }
 
-    case "SAVE_AUTH":
-      chrome.storage.session.set({
-        accessToken: message.accessToken,
-        refreshToken: message.refreshToken
-      }, () => {
-        sendResponse({ success: true });
-      });
-      return true;
-
-    case "GET_AUTH_STATUS":
-      chrome.storage.session.get(["accessToken", "refreshToken"], (result) => {
-        sendResponse({
-          isAuthenticated: Boolean(result.accessToken),
-          accessToken: result.accessToken || null,
-          refreshToken: result.refreshToken || null
+      case "GET_PENDING_CONTACT_KEY": {
+        chrome.storage.session.get(message.key, (result) => {
+          sendResponse({
+            success: true,
+            value: result?.[message.key] || null
+          });
         });
-      });
-      return true;
-  }
-});
+
+        return true;
+      }
+
+      case "DELETE_PENDING_CONTACT_KEY": {
+        chrome.storage.session.remove(message.key, () => {
+          sendResponse({ success: true });
+        });
+
+        return true;
+      }
+
+      case "LINKEDIN_PROFILE_URL":
+        chrome.storage.session.set(
+          { linkedinProfileUrl: message.profileUrl },
+          () => {
+            sendResponse({ success: true });
+          }
+        );
+        return true;
+
+      case "GET_PROFILE_URL":
+        chrome.storage.session.get("linkedinProfileUrl", (result) => {
+          sendResponse({ profileUrl: result.linkedinProfileUrl || null });
+        });
+        return true;
+
+      case "SAVE_AUTH":
+        chrome.storage.session.set(
+          {
+            accessToken: message.accessToken,
+            refreshToken: message.refreshToken
+          },
+          () => {
+            sendResponse({ success: true });
+          }
+        );
+        return true;
+
+      case "GET_AUTH_STATUS":
+        chrome.storage.session.get(["accessToken", "refreshToken"], (result) => {
+          sendResponse({
+            isAuthenticated: Boolean(result.accessToken),
+            accessToken: result.accessToken || null,
+            refreshToken: result.refreshToken || null
+          });
+        });
+        return true;
+
+      case "CLEAR_AUTH":
+        chrome.storage.session.remove(["accessToken", "refreshToken"], () => {
+          sendResponse({ success: true });
+        });
+        return true;
+    }
+  });
 }
 /**
  * --- MESSAGING HANDLERS (WEB/SERVICE WORKER) ---
@@ -131,7 +174,7 @@ async function startPhoneStream(source, apolloId) {
     return;
   }
 
-  const url = `http://127.0.0.1:8000/contact/enriched_contact_sse/${apolloId}`;
+  const url = `http://127.0.0.1:8000/contact/enriched_contact_sse/${apolloId}?skip_debounce=true`;
   const evt = new EventSource(url);
   phoneSources[apolloId] = evt;
 
