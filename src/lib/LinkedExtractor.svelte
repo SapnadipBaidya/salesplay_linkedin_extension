@@ -64,6 +64,9 @@
     } else {
       return null;
     }
+    emailError=null;
+    phoneError=null;
+    profileError=null;
   }
   let contactDetails = $state({
     email: null,
@@ -171,57 +174,59 @@
   /* Reactive Effect                                                             */
   /* -------------------------------------------------------------------------- */
 
-  $effect(() => {
-    updateUrl();
-    const linkedinURL = profileUrl;
-    isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
+$effect(() => {
+  updateUrl();
+  const linkedinURL = profileUrl;
+  isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
 
-    if (!loading && isValidLinkedInUrl && linkedinURL !== lastFetchedUrl && $user?.company_id?.trim()?.length>0) {
-      extractLinkedInProfile();
-    }
+  // Always register listeners so tab switches work from any state
+  // (including after a profileError or while on a non-LinkedIn tab)
+  const handleTabActivated = async () => {
+    await updateUrl();
+  };
 
-    if (!linkedinURL) {
-      return;
-    }
-
-    if (!isValidLinkedInUrl) {
-      lastFetchedUrl = "";
-      resetContactData();
-      return;
-    }
-
-    const key = getPendingContactKey($user?.id, linkedinURL);
-
-    checkPendingPhoneState(key);
-
-    const handleTabActivated = async () => {
-      await updateUrl();
-    };
-
-    // When active tab URL changes
-    const handleTabUpdated = async (tabId, changeInfo, tab) => {
-      if (changeInfo.url || changeInfo.status === "complete") {
-        const [activeTab] = await chrome.tabs.query({
-          active: true,
-          currentWindow: true,
-        });
-
-        if (activeTab?.id === tabId && activeTab?.url) {
-          profileUrl = activeTab.url;
-          console.log("Updated active tab URL:", profileUrl);
-        }
+  const handleTabUpdated = async (tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === "complete") {
+      const [activeTab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (activeTab?.id === tabId && activeTab?.url) {
+        profileUrl = activeTab.url;
+        console.log("Updated active tab URL:", profileUrl);
       }
-    };
+    }
+  };
 
-    chrome.tabs.onActivated.addListener(handleTabActivated);
-    chrome.tabs.onUpdated.addListener(handleTabUpdated);
+  chrome.tabs.onActivated.addListener(handleTabActivated);
+  chrome.tabs.onUpdated.addListener(handleTabUpdated);
 
-    // Cleanup when component unmounts
-    return () => {
-      chrome.tabs.onActivated.removeListener(handleTabActivated);
-      chrome.tabs.onUpdated.removeListener(handleTabUpdated);
-    };
-  });
+  const cleanup = () => {
+    chrome.tabs.onActivated.removeListener(handleTabActivated);
+    chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+  };
+
+  // Early-exit guards — cleanup still runs on next effect cycle
+  if (!linkedinURL){ 
+    resetContactData();
+    return cleanup;}
+
+  if (!isValidLinkedInUrl) {
+    lastFetchedUrl = "";
+    resetContactData();
+    return cleanup;
+  }
+
+  // Valid LinkedIn URL
+  if (!loading && linkedinURL !== lastFetchedUrl && $user?.company_id?.trim()?.length > 0) {
+    extractLinkedInProfile();
+  }
+
+  const key = getPendingContactKey($user?.id, linkedinURL);
+  checkPendingPhoneState(key);
+
+  return cleanup;
+});
 
   /* -------------------------------------------------------------------------- */
   /* Messaging                                                                   */
@@ -533,8 +538,9 @@
 
       {#if profileUrl}
         <div class="inline-error" role="alert">
-          <span class="error-icon">!</span>
+
           <span>Please enter a valid LinkedIn profile URL.</span>
+                    <span class="error-icon">!</span>
         </div>
       {/if}
     {/if}
