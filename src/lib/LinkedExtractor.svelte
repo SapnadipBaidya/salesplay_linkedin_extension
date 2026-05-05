@@ -176,7 +176,7 @@
     const linkedinURL = profileUrl;
     isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
 
-    if (!loading && isValidLinkedInUrl && linkedinURL !== lastFetchedUrl) {
+    if (!loading && isValidLinkedInUrl && linkedinURL !== lastFetchedUrl && $user?.company_id?.trim()?.length>0) {
       extractLinkedInProfile();
     }
 
