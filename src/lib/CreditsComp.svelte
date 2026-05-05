@@ -1,10 +1,11 @@
 <script>
+const user = getContext("userContext");
 let { deductCredits = $bindable() } = $props();
   import { getContext, onMount } from "svelte";
   import { getCreditBalance, getCreditTransactions } from "../apiUtils";
 
   const fmt = (n) => n.toLocaleString();
-  const user = getContext("userContext");
+ 
 
   let currentBalance = $state(0);
   let totalBalance = $state(0);
@@ -17,8 +18,9 @@ let { deductCredits = $bindable() } = $props();
     totalBalance > 0 ? Math.min((currentBalance / totalBalance) * 100, 100) : 0
   );
 
-  onMount(async () => {
-    const [balanceResp, transactionsResp] = await Promise.all([
+    async function fetchTransactions() {
+      loading=true
+     const [balanceResp, transactionsResp] = await Promise.all([
       getCreditBalance($user?.id),
       getCreditTransactions($user?.id),
     ]);
@@ -32,7 +34,11 @@ let { deductCredits = $bindable() } = $props();
 
     loading = false;
     console.log("user credit", currentBalance, totalBalance);
-  });
+  }
+
+  $effect(()=>{
+fetchTransactions();
+  })
 </script>
 
 <div class="credits-bar">
