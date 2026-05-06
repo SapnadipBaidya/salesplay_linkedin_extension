@@ -5,6 +5,7 @@
   import LoginScreen from "./lib/LoginScreen.svelte";
   import LinkedExtractor from "./lib/LinkedExtractor.svelte";
   import { fetchUserDetails, isExtension, removeTokens } from "./authUtils";
+    import { sendMessageAsync } from "./uiUtils";
 
   let accessToken    = $state("");
   let isUserLoggedIn = $state(false);
@@ -13,6 +14,57 @@
 
   const userStore = writable({});
   setContext("userContext", userStore);
+
+// @ts-ignore
+async function getTokenFromWebApp() {
+  const APP_URL   = "https://salesplay.marketsandmarkets.com/*";
+  const LOGIN_URL = "https://salesplay.marketsandmarkets.com/clients_accounts";
+
+  // @ts-ignore
+  let [tab] = await chrome.tabs.query({ url: APP_URL });
+  let createdTab = false; // track if WE opened it
+
+  if (!tab) {
+    // @ts-ignore
+    tab = await chrome.tabs.create({ url: LOGIN_URL, active: false });
+    createdTab = true;
+
+    await new Promise((resolve) => {
+      // @ts-ignore
+      chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+        if (tabId === tab.id && info.status === "complete") {
+          // @ts-ignore
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      });
+    });
+
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // @ts-ignore
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => ({
+      accessToken:  localStorage.getItem("access_token"),
+      refreshToken: localStorage.getItem("refresh_token"),
+    }),
+  });
+
+  if (createdTab) {
+    // @ts-ignore
+    chrome.tabs.remove(tab.id);
+  }
+
+  const { accessToken, refreshToken } = result.result;
+
+  if (accessToken) {
+    await sendMessageAsync({ type: "SAVE_AUTH", accessToken, refreshToken });
+  } else {
+    console.log("Tab found but user is not logged in.");
+  }
+}
 
   onMount(async () => {
     if (!isExtension) {
@@ -31,6 +83,9 @@
       }
       return;
     }
+
+    // @ts-ignore
+   await getTokenFromWebApp()
 
     // @ts-ignore
     chrome.runtime.sendMessage({ type: "GET_AUTH_STATUS" }, async (response) => {
@@ -71,25 +126,6 @@
     removeTokens();
   }
 
-  // function handleRetry() {
-  //   loadError = "";
-  //   loading   = true;
-  //   // Re-trigger the mount logic by resetting + re-fetching
-  //   (async () => {
-  //     try {
-  //       accessToken = localStorage.getItem("access_token") || "";
-  //       const data  = await fetchUserDetails();
-  //       if (data?.id) {
-  //         userStore.set(data);
-  //         isUserLoggedIn = true;
-  //       }
-  //     } catch (err) {
-  //       loadError = "Still unable to connect. Check your network.";
-  //     } finally {
-  //       loading = false;
-  //     }
-  //   })();
-  // }
 </script>
 
 <link
@@ -102,11 +138,9 @@
 {#snippet loadingView()}
   <div class="shell" aria-busy="true" aria-label="Checking login status">
     <div class="loading-layout">
-      <div class="loading-mark" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="8.5" stroke="currentColor" stroke-width="1.6" stroke-opacity=".18"/>
-          <path d="M10 1.5A8.5 8.5 0 0 1 18.5 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        </svg>
+      <div class="spinner" aria-hidden="true">
+        <div class="spinner-track"></div>
+        <div class="spinner-arc"></div>
       </div>
       <p class="loading-label">Checking session…</p>
     </div>
@@ -181,4 +215,53 @@
     flex-direction: column;
     align-items: center;
   }
+
+  @keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.45; }
+  50%       { opacity: 1; }
+}
+
+
+.loading-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.spinner {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+.spinner-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.spinner-arc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  border-top-color: currentColor;
+  animation: spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.loading-label {
+  font-size: 13px;
+  color: var(--your-muted-color);
+  letter-spacing: 0.01em;
+  animation: pulse 2s ease-in-out infinite;
+}
 </style>
