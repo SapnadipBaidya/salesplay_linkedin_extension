@@ -1,12 +1,15 @@
+// @ts-nocheck
 let lastUrl = location.href;
-console.log("mounted content.js")
-function sendProfileUrl(url) {
-  console.log("LinkedIn profile detected:", url);
+console.log("mounted content.js");
 
-  // @ts-ignore
+function sendProfileUrl(url) {
+  // Only send if this tab is active and visible
+  if (document.visibilityState !== "visible") return;
+
+  console.log("LinkedIn profile detected:", url);
   chrome.runtime.sendMessage({
     type: "LINKEDIN_PROFILE_URL",
-    profileUrl: url
+    profileUrl: url,
   });
 }
 
@@ -15,7 +18,7 @@ sendProfileUrl(lastUrl);
 
 // Detect URL changes (SPA navigation)
 const observer = new MutationObserver(() => {
-  console.log("MutationObserver",location)
+  console.log("MutationObserver", location);
   if (location.href !== lastUrl) {
     lastUrl = location.href;
 
@@ -25,8 +28,14 @@ const observer = new MutationObserver(() => {
   }
 });
 
-// Observe DOM changes (LinkedIn updates DOM on route change)
 observer.observe(document.body, {
   childList: true,
-  subtree: true
+  subtree: true,
+});
+
+// Also fire when user switches back to this tab
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    sendProfileUrl(lastUrl);
+  }
 });

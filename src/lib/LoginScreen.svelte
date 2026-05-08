@@ -86,7 +86,7 @@
       );
 
       if (isLoggedIn) {
-        onLoginSuccess?.(isLoggedIn);
+       await onLoginSuccess?.(isLoggedIn);
         successMessage = "Login successful.";
       } else {
         errorMessage = "Invalid login response.";

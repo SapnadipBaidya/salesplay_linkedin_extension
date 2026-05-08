@@ -39,7 +39,7 @@
   /* -------------------------------------------------------------------------- */
   /* State                                                                       */
   /* -------------------------------------------------------------------------- */
-
+  let activeTabId= $state(null);
   let gettingProfile = $state(false);
   let accessingEmail = $state(false);
   let accessingPhone = $state(false);
@@ -59,6 +59,7 @@
         currentWindow: true,
       });
       if (tab?.url) {
+        console.log("updateUrl",tab?.url)
         profileUrl = tab.url;
       }
     } else {
@@ -169,65 +170,6 @@
 
     accessingPhone = true;
   }
-
-  /* -------------------------------------------------------------------------- */
-  /* Reactive Effect                                                             */
-  /* -------------------------------------------------------------------------- */
-
-$effect(() => {
-  updateUrl();
-  const linkedinURL = profileUrl;
-  isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
-
-  // Always register listeners so tab switches work from any state
-  // (including after a profileError or while on a non-LinkedIn tab)
-  const handleTabActivated = async () => {
-    await updateUrl();
-  };
-
-  const handleTabUpdated = async (tabId, changeInfo, tab) => {
-    if (changeInfo.url || changeInfo.status === "complete") {
-      const [activeTab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (activeTab?.id === tabId && activeTab?.url) {
-        profileUrl = activeTab.url;
-        console.log("Updated active tab URL:", profileUrl);
-      }
-    }
-  };
-
-  chrome.tabs.onActivated.addListener(handleTabActivated);
-  chrome.tabs.onUpdated.addListener(handleTabUpdated);
-
-  const cleanup = () => {
-    chrome.tabs.onActivated.removeListener(handleTabActivated);
-    chrome.tabs.onUpdated.removeListener(handleTabUpdated);
-  };
-
-  // Early-exit guards — cleanup still runs on next effect cycle
-  if (!linkedinURL){ 
-    resetContactData();
-    return cleanup;}
-
-  if (!isValidLinkedInUrl) {
-    lastFetchedUrl = "";
-    resetContactData();
-    return cleanup;
-  }
-
-  // Valid LinkedIn URL
-  if (!loading && linkedinURL !== lastFetchedUrl && $user?.company_id?.trim()?.length > 0) {
-    extractLinkedInProfile();
-  }
-
-  const key = getPendingContactKey($user?.id, linkedinURL);
-  checkPendingPhoneState(key);
-
-  return cleanup;
-});
-
   /* -------------------------------------------------------------------------- */
   /* Messaging                                                                   */
   /* -------------------------------------------------------------------------- */
@@ -260,6 +202,7 @@ $effect(() => {
     const message = event.data || event;
 
     if (message?.type === "LINKEDIN_PROFILE_URL") {
+      console.log("handleIncomingMessages", message.profileUrl)
       profileUrl = message.profileUrl || "";
     }
 
@@ -293,52 +236,8 @@ $effect(() => {
     }
   }
 
-  /* -------------------------------------------------------------------------- */
-  /* Lifecycle                                                                   */
-  /* -------------------------------------------------------------------------- */
 
-  onMount(() => {
-    if (!isExtension && "serviceWorker" in navigator) {
-      navigator.serviceWorker
-        .register("/background.js")
-        .then((registration) => {
-          console.log("SW Registered");
-          return navigator.serviceWorker.ready;
-        })
-        .then(() => {
-          navigator.serviceWorker.addEventListener(
-            "message",
-            handleIncomingMessages,
-          );
-
-          loading = false;
-        })
-        .catch((error) => {
-          console.error("SW failed:", error);
-          loading = false;
-        });
-
-      return () => {
-        navigator.serviceWorker.removeEventListener(
-          "message",
-          handleIncomingMessages,
-        ); // ❌ missing
-      };
-    } else if (isExtension) {
-      chrome.runtime.onMessage.addListener(handleIncomingMessages);
-      chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, (response) => {
-        profileUrl = response?.profileUrl || "";
-        loading = false;
-        return () => {
-          chrome.runtime.onMessage.removeListener(handleIncomingMessages);
-        };
-      });
-    } else {
-      loading = false;
-    }
-  });
-
-  /* -------------------------------------------------------------------------- */
+    /* -------------------------------------------------------------------------- */
   /* API Handlers                                                                */
   /* -------------------------------------------------------------------------- */
 
@@ -358,7 +257,7 @@ $effect(() => {
       lastFetchedUrl = profileUrl;
 
       const formattedUrl = formatLinkedInUrl(profileUrl);
-      loading = true;
+      // loading = true;
       const data = await getApolloContactDetails(
         formattedUrl,
         $user?.company_id,
@@ -371,7 +270,7 @@ $effect(() => {
       profileError = "Could not fetch contact data. Try again.";
     } finally {
       gettingProfile = false;
-      loading = false;
+      // loading = false;
     }
   }
 
@@ -410,6 +309,141 @@ $effect(() => {
       accessingEmail = false;
     }
   }
+
+
+  const handleTabActivated = async () => {
+    await updateUrl();
+  };
+
+  const handleTabUpdated = async (tabId, changeInfo, tab) => {
+    
+    if (activeTabId!=tabId) {
+      return null;
+    }
+
+     const [activeTab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+   
+    if (activeTab?.active && activeTab?.status =="complete") {
+       console.log("Updated active tab URL:", profileUrl);
+       profileUrl = activeTab?.url
+       await updateUrl();
+    }
+   
+    
+    // if (changeInfo.url || changeInfo.status === "complete") {
+    //   const [activeTab] = await chrome.tabs.query({
+    //     active: true,
+    //     currentWindow: true,
+    //   });
+    //   await updateUrl();
+    //   if (activeTab?.id === tabId && activeTab?.url) {
+    //     profileUrl = activeTab.url;
+    //     console.log("Updated active tab URL:", profileUrl);
+    //   }
+    // }
+  };
+
+  /* -------------------------------------------------------------------------- */
+  /* Lifecycle                                                                   */
+  /* -------------------------------------------------------------------------- */
+
+  onMount(async() => {
+  
+    if (!isExtension && "serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/background.js")
+        .then((registration) => {
+          console.log("SW Registered");
+          return navigator.serviceWorker.ready;
+        })
+        .then(() => {
+          navigator.serviceWorker.addEventListener(
+            "message",
+            handleIncomingMessages,
+          );
+
+          loading = false;
+        })
+        .catch((error) => {
+          console.error("SW failed:", error);
+          loading = false;
+        });
+
+      return () => {
+        navigator.serviceWorker.removeEventListener(
+          "message",
+          handleIncomingMessages,
+        ); // ❌ missing
+      };
+    } else if (isExtension) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      activeTabId = tab?.id;
+      console.log("onmount activeTabId",activeTabId)
+      chrome.runtime.onMessage.addListener(handleIncomingMessages);
+      chrome.runtime.sendMessage({ type: "GET_PROFILE_URL" }, async(response) => {
+        console.log("on mount",response?.profileUrl)
+        profileUrl = response?.profileUrl || "";
+        console.log("onmount profileUrl",response?.profileUrl)
+        await updateUrl()
+        loading = false;
+        return () => {
+          chrome.runtime.onMessage.removeListener(handleIncomingMessages);
+        };
+      });
+    } else {
+      loading = false;
+    }
+  });
+
+  /* -------------------------------------------------------------------------- */
+  /* Reactive Effect                                                             */
+  /* -------------------------------------------------------------------------- */
+
+$effect(() => {
+  const linkedinURL = profileUrl;
+  isValidLinkedInUrl = isValidLinkedInProfileUrl(linkedinURL);
+
+  // Always register listeners so tab switches work from any state
+  // (including after a profileError or while on a non-LinkedIn tab)
+
+
+  chrome.tabs.onActivated.addListener(async(tabInfo)=>await handleTabActivated(tabInfo));
+  chrome.tabs.onUpdated.addListener(async(tabInfo)=>await handleTabUpdated(tabInfo));
+
+  const cleanup = () => {
+    chrome.tabs.onActivated.removeListener(handleTabActivated);
+    chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+  };
+
+  // Early-exit guards — cleanup still runs on next effect cycle
+  if (!linkedinURL){ 
+    resetContactData();
+    return cleanup;}
+
+  if (!isValidLinkedInUrl) {
+    lastFetchedUrl = "";
+    resetContactData();
+    return cleanup;
+  }
+
+  // Valid LinkedIn URL
+  if (!loading && linkedinURL !== lastFetchedUrl && $user?.company_id?.trim()?.length > 0) {
+    console.log("sapnadip",linkedinURL,lastFetchedUrl)
+    extractLinkedInProfile();
+  }
+
+  const key = getPendingContactKey($user?.id, linkedinURL);
+  checkPendingPhoneState(key);
+
+  return cleanup;
+});
+
+
+
+
 
   async function handleAccessPhone() {
     if (!isValidLinkedInProfileUrl(profileUrl)) {
